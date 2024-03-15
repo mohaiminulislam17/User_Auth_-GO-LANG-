@@ -2,13 +2,12 @@ package helper
 
 import (
 	"context"
-	"go-lang-jwt-project/database"
+	"fmt"
 	database "go-lang-jwt-project/databases"
 	"log"
 	"os"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
 	jwt "github.com/dgrijalva/jwt-go"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -16,7 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type SignDetails struct {
+type SignedDetails struct {
 	Email      string
 	First_name string
 	Last_name  string
@@ -34,7 +33,7 @@ func GenerateAllTokens(email string, firstName string, lastName string, userType
 		Email:      email,
 		First_name: firstName,
 		Last_name:  lastName,
-		Uid:        uid,
+		Uid:        Uid,
 		User_type:  userType,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Local().Add(time.Hour * time.Duration(24)).Unix(),
@@ -48,13 +47,38 @@ func GenerateAllTokens(email string, firstName string, lastName string, userType
 	}
 
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(SECRET_KEY))
-	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodES256, refreshClaims), SignedString([]byte(SECRET_KEY))
-
 	if err != nil {
 		log.Panic(err)
-		return
+		return "", "", err
+	}
+
+	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString([]byte(SECRET_KEY))
+	if err != nil {
+		log.Panic(err)
+		return "", "", err
 	}
 	return token, refreshToken, err
+}
+
+func ValidateToken(signedToken string) (claims *SignedDetails, msg string) {
+	token, err := jwt.ParseWithClaims(
+		signedToken,
+		&SignedDetails{},
+		func(token *jwt.Token) (interface{}, error) {
+			return []byte(SECRET_KEY), nil
+		},
+	)
+	if err != nil {
+		msg = err.Error()
+		return
+	}
+	claims, ok := token.Claims.(*SignedDetails)
+	if !ok {
+		msg = fmt.Sprintf("the token is invalid")
+		msg = err.Error()
+		return
+	}
+	return
 }
 
 func UpdateAllTokens(signedToken string, signedRefreshToken string, userid string) {
@@ -69,7 +93,7 @@ func UpdateAllTokens(signedToken string, signedRefreshToken string, userid strin
 	updateobj = append(updateobj, bson.E{"updated_at", Updated_at})
 
 	upsert := true
-	filter := bson.M{"user_id": userId}
+	filter := bson.M{"user_id": userid}
 	opt := options.UpdateOptions{
 		Upsert: &upsert,
 	}
