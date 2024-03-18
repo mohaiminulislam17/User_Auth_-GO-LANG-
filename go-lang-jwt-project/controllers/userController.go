@@ -45,7 +45,6 @@ func VerifyPassword(userPassword string, providedPassword string) (bool, string)
 }
 
 func Signup() gin.HandlerFunc {
-
 	return func(c *gin.Context) {
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 		var user models.User
@@ -65,27 +64,31 @@ func Signup() gin.HandlerFunc {
 		defer cancel()
 		if err != nil {
 			log.Panic(err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "error ouccured while checking for the email"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occurred while checking for the email"})
+			return
 		}
 
 		password := HashPassword(*user.Password)
-		user.Password = password
+		user.Password = &password
 		count, err = userCollection.CountDocuments(ctx, bson.M{"phone": user.Phone})
 		defer cancel()
 		if err != nil {
 			log.Panic(err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occured while checking the"})
-
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error occurred while checking the phone number"})
+			return
 		}
 
 		if count > 0 {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "this email or phone number already exists"})
+			return
 		}
 
-		user.Created_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
-		user.Updated_at, _ = time.Parse(time.RFC3339, time.Now().Format(time.RFC3339))
+		user.Created_at = time.Now()
+		user.Updated_at = time.Now()
 		user.ID = primitive.NewObjectID()
-		user.User_id = user.ID.Hex()
+		user_id := user.ID.Hex()
+		user.User_id = &user_id
+
 		token, refreshToken, _ := helper.GenerateAllTokens(*user.Email, *user.First_name, *user.Last_name, *user.User_type, *user.User_id)
 		user.Token = &token
 		user.Refresh_token = &refreshToken
@@ -98,7 +101,6 @@ func Signup() gin.HandlerFunc {
 		}
 		defer cancel()
 		c.JSON(http.StatusOK, resultInsertionNumber)
-
 	}
 }
 
@@ -131,7 +133,7 @@ func Login() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "user not found"})
 		}
 		token, refreshToken, _ := helper.GenerateAllTokens(*foundUSer.Email, *foundUSer.First_name, *foundUSer.Last_name, *foundUSer.User_type, *foundUSer.User_id)
-		helper.UpdateAllTokens(token, refreshToken, foundUSer.User_id)
+		helper.UpdateAllTokens(token, refreshToken, *foundUSer.User_id)
 		userCollection.FindOne(ctx, bson.M{"user_id": foundUSer.User_id}).Decode(&foundUSer)
 
 		if err != nil {
@@ -151,7 +153,7 @@ func GetUsers() gin.HandlerFunc {
 		}
 		var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 
-		strconv.Atoi(c.Query("recordPerPage"))
+		recordPerPage, err := strconv.Atoi(c.Query("recordPerPage"))
 		if err != nil || recordPerPage < 1 {
 			recordPerPage = 10
 		}
@@ -161,7 +163,11 @@ func GetUsers() gin.HandlerFunc {
 		}
 
 		startIndex := (page - 1) * recordPerPage
-		startIndex, err = strconv.Atoi(c.Query("startIndex"))
+		startIndex, err = strconv.Atoi(c.Query("startIndex")) // Changed err variable here
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
 		//aggregation function for mongoDB
 		matchStage := bson.D{{"$match", bson.D{{}}}}
 		// for counting all the records in database. grouped by unique id
